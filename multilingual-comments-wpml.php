@@ -70,51 +70,67 @@ class Multilingual_Comments_WPML
 		}
 	}
 
-    public function modify_comments_query($clauses, $query) 
-    {
-        global $wpdb, $sitepress;
+	public function modify_comments_query($clauses, $query) 
+	{
+	    global $wpdb, $sitepress;
+	
+	    // Ensure we are only modifying queries for a specific post (avoid affecting global queries)
+	    if (empty($query->query_vars['post_id'])) {
+	        return $clauses;
+	    }
+	
+	    $post_ID = $query->query_vars['post_id'];
+	    $post = get_post($post_ID);
+	
+	    // If the post does not exist, return the unmodified query
+	    if (!$post) {
+	        return $clauses;
+	    }
+	
+	    // Temporarily remove WPML's built-in comment filtering to prevent conflicts
+	    remove_filter('comments_clauses', array($sitepress, 'comments_clauses'));
+	
+	    // Get a list of all active languages
+	    $languages = apply_filters('wpml_active_languages', null, 'skip_missing=1');
+	    $post_ids = [$post_ID]; // Start with the current post ID
+	
+	    // Loop through available languages and get translated post IDs
+	    foreach ($languages as $code => $l) {
+	        if (!$l['active']) { // Skip the current active language
+	            $translated_id = apply_filters('wpml_object_id', $post_ID, $post->post_type, false, $l['language_code']);
+	            if ($translated_id) {
+	                $post_ids[] = $translated_id; // Add translated post ID to the array
+	            }
+	        }
+	    }
+	
+	    // Ensure all post IDs are unique and properly formatted for SQL queries
+	    $post_ids = array_map('intval', array_unique($post_ids));
+	
+	    // Modify the WHERE clause to include all translations in the comment query
+	    $clauses['where'] = preg_replace(
+	        "/comment_post_ID = \d+/", // Look for the default `comment_post_ID = X` condition
+	        "comment_post_ID IN (" . implode(',', $post_ids) . ")", // Replace it with multiple post IDs
+	        $clauses['where']
+	    );
+	
+	    /**
+	     * Fix Pagination Issue:
+	     * - WordPress paginates comments **before** applying the `comments_clauses` filter.
+	     * - Since we are now fetching more comments, we need to adjust the LIMIT clause manually.
+	     * - `number` represents the number of comments per page.
+	     * - `offset` ensures pagination remains consistent.
+	     */
+	    if (!empty($query->query_vars['number'])) {
+	        $clauses['limits'] = "LIMIT " . (int) $query->query_vars['number'] . " OFFSET " . (int) $query->query_vars['offset'];
+	    }
+	
+	    // Re-add WPML's comment filtering after modifying the query
+	    add_filter('comments_clauses', array($sitepress, 'comments_clauses'), 10, 2);
+	
+	    return $clauses;
+	}
 
-        // Only modify if we're querying for a specific post
-        if (empty($query->query_vars['post_id'])) {
-            return $clauses;
-        }
-
-        $post_ID = $query->query_vars['post_id'];
-        $post = get_post($post_ID);
-        
-        if (!$post) {
-            return $clauses;
-        }
-
-        // Temporarily remove WPML's comment filtering to prevent conflicts
-        remove_filter('comments_clauses', array($sitepress, 'comments_clauses'));
-
-        // Get all language versions of this post
-        $languages = apply_filters('wpml_active_languages', null, 'skip_missing=1');
-        $post_ids = [$post_ID];
-
-        foreach ($languages as $code => $l) {
-            if (!$l['active']) {
-                $translated_id = apply_filters('wpml_object_id', $post_ID, $post->post_type, false, $l['language_code']);
-                if ($translated_id) {
-                    $post_ids[] = $translated_id;
-                }
-            }
-        }
-
-        // Modify the WHERE clause to include all language versions
-        $post_ids = array_map('intval', array_unique($post_ids));
-        $clauses['where'] = str_replace(
-            $wpdb->prepare("AND comment_post_ID = %d", $post_ID),
-            "AND comment_post_ID IN (" . implode(',', $post_ids) . ")",
-            $clauses['where']
-        );
-
-        // Add back WPML's comment filtering to prevent conflicts
-        add_filter('comments_clauses', array($sitepress, 'comments_clauses'), 10, 2);
-
-        return $clauses;
-    }
 
 	public function merge_comment_count($count, $post_ID)
 	{
