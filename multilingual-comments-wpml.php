@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Comments WPML
  * Plugin URI: https://wordpress.org/plugins/multilingual-comments-wpml
- * Description: VERSIONE MODIFICATA PER ENROMA, NON AGGIORNARE! Merge comments from all WPML translations of a post.
+ * Description: This plugin combines comments from all translations of the posts and pages using WPML. Comments are internally still attached to the post or page in the language they were made on.
  *
  * Version: 1.2.1
  * Author: Pieter Bos
