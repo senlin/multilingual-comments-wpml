@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Comments WPML
  * Plugin URI: https://wordpress.org/plugins/multilingual-comments-wpml
- * Description: This plugin combines comments from all translations of the posts and pages using WPML. Comments are internally still attached to the post or page in the language they were made on.
+ * Description: VERSIONE MODIFICATA PER ENROMA, NON AGGIORNARE! Merge comments from all WPML translations of a post.
  *
  * Version: 1.2.1
  * Author: Pieter Bos
@@ -38,9 +38,16 @@ class Multilingual_Comments_WPML
 	public function __construct()
 	{
 		register_activation_hook(__FILE__, [$this, 'activate']);
-		add_filter('comments_array', [$this, 'merge_comments'], 100, 2);
+        	// Remove the later-stage comments_array filter
+        	// add_filter('comments_array', [$this, 'merge_comments'], 100, 2);
+        
+        	// Add earlier-stage filter for comment queries
+        	add_filter('comments_clauses', [$this, 'modify_comments_query'], 5, 2);
 		add_filter('get_comments_number', [$this, 'merge_comment_count'], 100, 2);
+
+
 	}
+
 
 	public function is_wpml_active()
 	{
@@ -66,57 +73,99 @@ class Multilingual_Comments_WPML
 		}
 	}
 
-	private function sort_merged_comments($a, $b)
+	public function modify_comments_query($clauses, $query) 
 	{
-		return $a->comment_ID - $b->comment_ID;
+	    global $wpdb, $sitepress;
+	
+	    // Ensure we are only modifying queries for a specific post (avoid affecting global queries)
+	    if (empty($query->query_vars['post_id'])) {
+	        return $clauses;
+	    }
+	
+	    $post_ID = $query->query_vars['post_id'];
+	    $post = get_post($post_ID);
+	
+	    // If the post does not exist, return the unmodified query
+	    if (!$post) {
+	        return $clauses;
+	    }
+	
+	    // Temporarily remove WPML's built-in comment filtering to prevent conflicts
+	    remove_filter('comments_clauses', array($sitepress, 'comments_clauses'));
+	
+	    // Get a list of all active languages
+	    $languages = apply_filters('wpml_active_languages', null, 'skip_missing=1');
+	    $post_ids = [$post_ID]; // Start with the current post ID
+	
+	    // Loop through available languages and get translated post IDs
+	    foreach ($languages as $code => $l) {
+	        if (!$l['active']) { // Skip the current active language
+	            $translated_id = apply_filters('wpml_object_id', $post_ID, $post->post_type, false, $l['language_code']);
+	            if ($translated_id) {
+	                $post_ids[] = $translated_id; // Add translated post ID to the array
+	            }
+	        }
+	    }
+	
+	    // Ensure all post IDs are unique and properly formatted for SQL queries
+	    $post_ids = array_map('intval', array_unique($post_ids));
+	
+	    // Modify the WHERE clause to include all translations in the comment query
+	    $clauses['where'] = preg_replace(
+	        "/comment_post_ID = \d+/", // Look for the default `comment_post_ID = X` condition
+	        "comment_post_ID IN (" . implode(',', $post_ids) . ")", // Replace it with multiple post IDs
+	        $clauses['where']
+	    );
+	
+	    /**
+	     * Fix Pagination Issue:
+	     * - WordPress paginates comments **before** applying the `comments_clauses` filter.
+	     * - Since we are now fetching more comments, we need to adjust the LIMIT clause manually.
+	     * - `number` represents the number of comments per page.
+	     * - `offset` ensures pagination remains consistent.
+	     */
+	    if (!empty($query->query_vars['number'])) {
+	        $clauses['limits'] = "LIMIT " . (int) $query->query_vars['number'] . " OFFSET " . (int) $query->query_vars['offset'];
+	    }
+	
+	    // Re-add WPML's comment filtering after modifying the query
+	   // add_filter('comments_clauses', array($sitepress, 'comments_clauses'), 10, 2);
+	
+	    return $clauses;
 	}
 
-	public function merge_comments($comments, $post_ID)
-	{
-		global $sitepress;
-
-		remove_filter('comments_clauses', array($sitepress, 'comments_clauses'));
-
-		$languages = apply_filters('wpml_active_languages', null, 'skip_missing=1');
-
-		$post = get_post($post_ID);
-		$type = $post->post_type;
-
-		foreach ($languages as $code => $l) {
-			if (!$l['active']) {
-				$otherID = apply_filters('wpml_object_id', $post_ID, $type, false, $l['language_code']);
-				// add condition to prevent $otherID returning `null`
-				if ($otherID) {
-					$othercomments = get_comments(array('post_id' => $otherID, 'status' => 'approve', 'order' => 'ASC'));
-					$comments = array_merge($comments, $othercomments);
-				}
-			}
-		}
-
-		if ($languages) {
-			usort($comments, [$this, 'sort_merged_comments']);
-		}
-
-		add_filter('comments_clauses', array($sitepress, 'comments_clauses'), 10, 2);
-
-		return $comments;
-	}
 
 	public function merge_comment_count($count, $post_ID)
 	{
-		$languages = apply_filters('wpml_active_languages', null, 'skip_missing=1');
+		
+		//Get settings to check hidden languages
+		$iclsettings = get_option('icl_sitepress_settings');
+		$hidden_languages = $iclsettings['hidden_languages'];
 
-		$post = get_post($post_ID);
-		$type = $post->post_type;
+		// get post translations ids
+		$type = apply_filters( 'wpml_element_type', get_post_type( $post_ID ) );
+        $trid = apply_filters( 'wpml_element_trid', false, $post_ID, $type );
+        $translations = apply_filters( 'wpml_get_element_translations', array(), $trid, $type );
 
-		foreach ($languages as $l) {
-			if (!$l['active']) {
-				$otherID = apply_filters('wpml_object_id', $post_ID, $type, false, $l['language_code']);
-				if ($otherID) {
-					$otherpost = get_post($otherID);
-					if ($otherpost) {
-						$count = $count + $otherpost->comment_count;
-					}
+		// for each translation in the translation group
+		foreach ($translations as $translation) {
+
+			// if $translation lang code is in hidden languages, skip
+			if (in_array($translation->language_code, $hidden_languages)) {
+				continue;
+			}
+
+			//If the translation is not the same as the current post
+			if ($translation->element_id != $post_ID) {
+				//Check if the translated post exists
+				$otherpost = get_post($translation->element_id);
+				//Check if the post is published
+				if ($otherpost->post_status != 'publish') {
+					continue;
+				}
+				//Get the comment count of the translated post and add it to the total count
+				if ($otherpost && !is_wp_error($otherpost)) {
+					$count = $count + $otherpost->comment_count;
 				}
 			}
 		}
