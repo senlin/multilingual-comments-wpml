@@ -9,7 +9,7 @@
  * Author URI: https://so-wp.com
  *
  * Requires at least:	4.9
- * Tested up to:		6.5
+ * Tested up to:		6.9
 
  * License: GPL-3.0+
  * License URI: http://www.gnu.org/licenses/gpl-3.0.txt
@@ -38,11 +38,11 @@ class Multilingual_Comments_WPML
 	public function __construct()
 	{
 		register_activation_hook(__FILE__, [$this, 'activate']);
-        	// Remove the later-stage comments_array filter
-        	// add_filter('comments_array', [$this, 'merge_comments'], 100, 2);
-        
-        	// Add earlier-stage filter for comment queries
-        	add_filter('comments_clauses', [$this, 'modify_comments_query'], 5, 2);
+        // Remove the later-stage comments_array filter
+        // add_filter('comments_array', [$this, 'merge_comments'], 100, 2);
+
+        // Add earlier-stage filter for comment queries
+    	add_filter('comments_clauses', [$this, 'modify_comments_query'], 5, 2);
 		add_filter('get_comments_number', [$this, 'merge_comment_count'], 100, 2);
 	}
 
@@ -70,30 +70,30 @@ class Multilingual_Comments_WPML
 		}
 	}
 
-	public function modify_comments_query($clauses, $query) 
+	public function modify_comments_query($clauses, $query)
 	{
 	    global $wpdb, $sitepress;
-	
+
 	    // Ensure we are only modifying queries for a specific post (avoid affecting global queries)
 	    if (empty($query->query_vars['post_id'])) {
 	        return $clauses;
 	    }
-	
+
 	    $post_ID = $query->query_vars['post_id'];
 	    $post = get_post($post_ID);
-	
+
 	    // If the post does not exist, return the unmodified query
 	    if (!$post) {
 	        return $clauses;
 	    }
-	
+
 	    // Temporarily remove WPML's built-in comment filtering to prevent conflicts
 	    remove_filter('comments_clauses', array($sitepress, 'comments_clauses'));
-	
+
 	    // Get a list of all active languages
 	    $languages = apply_filters('wpml_active_languages', null, 'skip_missing=1');
 	    $post_ids = [$post_ID]; // Start with the current post ID
-	
+
 	    // Loop through available languages and get translated post IDs
 	    foreach ($languages as $code => $l) {
 	        if (!$l['active']) { // Skip the current active language
@@ -103,17 +103,17 @@ class Multilingual_Comments_WPML
 	            }
 	        }
 	    }
-	
+
 	    // Ensure all post IDs are unique and properly formatted for SQL queries
 	    $post_ids = array_map('intval', array_unique($post_ids));
-	
+
 	    // Modify the WHERE clause to include all translations in the comment query
 	    $clauses['where'] = preg_replace(
 	        "/comment_post_ID = \d+/", // Look for the default `comment_post_ID = X` condition
 	        "comment_post_ID IN (" . implode(',', $post_ids) . ")", // Replace it with multiple post IDs
 	        $clauses['where']
 	    );
-	
+
 	    /**
 	     * Fix Pagination Issue:
 	     * - WordPress paginates comments **before** applying the `comments_clauses` filter.
@@ -124,10 +124,10 @@ class Multilingual_Comments_WPML
 	    if (!empty($query->query_vars['number'])) {
 	        $clauses['limits'] = "LIMIT " . (int) $query->query_vars['number'] . " OFFSET " . (int) $query->query_vars['offset'];
 	    }
-	
+
 	    // Re-add WPML's comment filtering after modifying the query
 	    add_filter('comments_clauses', array($sitepress, 'comments_clauses'), 10, 2);
-	
+
 	    return $clauses;
 	}
 

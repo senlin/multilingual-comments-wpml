@@ -3,7 +3,7 @@
 [![plugin version](https://img.shields.io/wordpress/plugin/v/multilingual-comments-wpml.svg)](https://wordpress.org/plugins/multilingual-comments-wpml)
 
 ###### Last updated on May 22, 2024
-###### tested up to WP 6.5
+###### tested up to WP 6.9
 ###### Authors: [Pieter Bos](https://github.com/senlin)
 ###### [Stable Version](https://wordpress.org/plugins/multilingual-comments-wpml) (via WordPress Plugins Repository)
 ###### [Plugin homepage](https://so-wp.com/plugin/multilingual-comments-wpml)
