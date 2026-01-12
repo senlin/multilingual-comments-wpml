@@ -3,7 +3,7 @@ Contributors: senlin
 Tags: WPML, merge comments, all comments, all languages, combine comments
 Donate link: https://so-wp.com/donations
 Requires at least: 4.9
-Tested up to: 6.5
+Tested up to: 6.9
 Requires PHP: 7.4
 Stable tag: 1.2.1
 License: GPL-3.0+
